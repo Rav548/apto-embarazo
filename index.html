@@ -34,6 +34,7 @@ video{width:100%;border-radius:12px;background:#000;margin-top:10px;max-height:3
 h3{font-size:1rem;margin:0 0 6px}ul{margin:0;padding-left:20px;color:var(--mut)}
 .st{color:var(--mut);font-size:.92rem;margin-top:10px;min-height:1.3em}
 .disc{font-size:.82rem;color:var(--mut);text-align:center;margin-top:18px}
+#cv{width:100%;border-radius:12px;touch-action:none;margin-top:10px;display:block}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -49,13 +50,21 @@ h3{font-size:1rem;margin:0 0 6px}ul{margin:0;padding-left:20px;color:var(--mut)}
     <button class="btn sec" id="bStop">Cerrar cámara</button>
   </div>
   <div class="row"><input type="text" id="code" inputmode="numeric" placeholder="…o escribe el código (EAN)" aria-label="Código de barras"><button class="btn" id="bCode">Buscar</button></div>
+  <label class="btn sec" for="bimg" style="margin-top:10px">📸 Foto del código de barras</label>
+  <input id="bimg" type="file" accept="image/*" capture="environment">
 
   <label class="btn sec" for="cam" style="margin-top:16px">📷 Foto de los ingredientes</label>
   <input id="cam" type="file" accept="image/*" capture="environment">
+  <label class="btn sec" for="gal">🖼️ Elegir foto de la galería</label>
+  <input id="gal" type="file" accept="image/*">
   <div class="st" id="st" role="status"></div>
+  <div id="crop" hidden><canvas id="cv"></canvas>
+    <div class="row"><button class="btn" id="bRead" style="flex:1;padding:14px">Leer selección</button><button class="btn sec" id="bAll" style="flex:1;padding:14px">Foto entera</button></div></div>
+  <div id="cands"></div>
 
   <label class="t" for="nm">Nombre o tipo de producto (ayuda a afinar, ej.: chorizo):</label>
   <input type="text" id="nm" placeholder="Ej.: chorizo picante">
+  <button class="btn sec" id="bName">🔎 Buscar por nombre</button>
   <label class="t" for="txt">Ingredientes (puedes corregir el texto leído):</label>
   <textarea id="txt" placeholder="Ej.: leche, azúcar, extracto de regaliz, aroma…"></textarea>
   <button class="btn" id="go">Analizar</button>
@@ -126,51 +135,130 @@ function analyze(){
 }
 $("go").onclick=analyze;
 
-// ---- Foto → texto (OCR en el propio móvil) ----
-function shrink(f){return createImageBitmap(f).then(function(b){var s=Math.min(1,1800/Math.max(b.width,b.height)),c=document.createElement("canvas");c.width=Math.round(b.width*s);c.height=Math.round(b.height*s);c.getContext("2d").drawImage(b,0,0,c.width,c.height);return new Promise(function(r){c.toBlob(function(x){r(x||f)},"image/jpeg",.9)})}).catch(function(){return f})}
-$("cam").onchange=function(e){
-  var f=e.target.files[0];e.target.value="";if(!f)return;
+// ---- Foto → recorte → texto (OCR en el propio móvil) ----
+var img=null,sel=null,drag=null,cv=$("cv"),cx=cv.getContext("2d"),worker=null;
+function loadImg(f){
+  createImageBitmap(f).then(function(b){
+    img=b;var k=Math.min(1,1200/Math.max(b.width,b.height));
+    cv.width=Math.round(b.width*k);cv.height=Math.round(b.height*k);
+    sel={x:0,y:0,w:cv.width,h:cv.height};draw();$("crop").hidden=false;
+    st.textContent="Marca con el dedo solo la lista de ingredientes y pulsa «Leer selección».";
+    $("crop").scrollIntoView({behavior:"smooth"});
+  }).catch(function(){st.textContent="No he podido abrir la foto."});
+}
+function draw(){
+  cx.drawImage(img,0,0,cv.width,cv.height);cx.fillStyle="rgba(0,0,0,.5)";
+  cx.fillRect(0,0,cv.width,sel.y);cx.fillRect(0,sel.y+sel.h,cv.width,cv.height);
+  cx.fillRect(0,sel.y,sel.x,sel.h);cx.fillRect(sel.x+sel.w,sel.y,cv.width-sel.x-sel.w,sel.h);
+  cx.strokeStyle="#6fc2a8";cx.lineWidth=3;cx.strokeRect(sel.x,sel.y,sel.w,sel.h);
+}
+function pt(e){var r=cv.getBoundingClientRect();return{x:Math.max(0,Math.min(cv.width,(e.clientX-r.left)*cv.width/r.width)),y:Math.max(0,Math.min(cv.height,(e.clientY-r.top)*cv.height/r.height))}}
+cv.onpointerdown=function(e){drag=pt(e);cv.setPointerCapture(e.pointerId)};
+cv.onpointermove=function(e){if(!drag)return;var p=pt(e);sel={x:Math.min(drag.x,p.x),y:Math.min(drag.y,p.y),w:Math.abs(p.x-drag.x),h:Math.abs(p.y-drag.y)};draw()};
+cv.onpointerup=function(){drag=null;if(sel.w<20||sel.h<20){sel={x:0,y:0,w:cv.width,h:cv.height};draw()}};
+function prep(){ // recorta, amplía, pasa a grises y estira el contraste
+  var k=img.width/cv.width,sx=sel.x*k,sy=sel.y*k,sw=sel.w*k,sh=sel.h*k,z=Math.min(3,Math.max(1,2200/sw));
+  var c=document.createElement("canvas");c.width=Math.round(sw*z);c.height=Math.round(sh*z);
+  var g=c.getContext("2d");g.imageSmoothingQuality="high";g.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+  var d=g.getImageData(0,0,c.width,c.height),a=d.data,lo=255,hi=0,i,v;
+  for(i=0;i<a.length;i+=4){v=.299*a[i]+.587*a[i+1]+.114*a[i+2];a[i]=v;if(v<lo)lo=v;if(v>hi)hi=v}
+  var r=Math.max(1,hi-lo);
+  for(i=0;i<a.length;i+=4){v=Math.max(0,Math.min(255,(a[i]-lo)*255/r));a[i]=a[i+1]=a[i+2]=v}
+  g.putImageData(d,0,0);return c;
+}
+function getWorker(){
+  if(!worker)worker=Tesseract.createWorker("spa",1,{logger:function(m){
+    if(m.status==="recognizing text")st.textContent="Leyendo… "+Math.round(m.progress*100)+"%";
+    else st.textContent="Preparando el lector (la primera vez tarda)…"}}).then(function(w){
+    return w.setParameters({tessedit_pageseg_mode:"6",preserve_interword_spaces:"1"}).then(function(){return w})});
+  return worker;
+}
+function extract(t){ // se queda solo con la lista de ingredientes
+  t=t.replace(/\s*\n\s*/g," ").replace(/\s{2,}/g," ").trim();
+  var m=t.match(/[i1l|!]ngred[a-z]{0,8}\s*[:;.,]?/i);if(m)t=t.slice(m.index+m[0].length);
+  var e=t.search(/valor(es)? (energ|nutri|medio)|informaci[oó]n nutri|declaraci[oó]n nutri|conservar|consumir preferent|fabricado|elaborado|envasado|lote\b|modo de empleo/i);
+  if(e>20)t=t.slice(0,e);
+  return t.trim();
+}
+$("bRead").onclick=function(){
+  if(!img)return;
   if(!window.Tesseract){st.textContent="No se pudo cargar el lector de texto. ¿Tienes conexión?";return}
-  st.textContent="Leyendo la foto… (la primera vez tarda un poco)";
-  shrink(f).then(function(b){return Tesseract.recognize(b,"spa",{logger:function(m){if(m.status==="recognizing text")st.textContent="Leyendo la foto… "+Math.round(m.progress*100)+"%"}})})
-  .then(function(r){
-    var t=r.data.text.replace(/\s*\n\s*/g," ").trim();
-    var i=t.toLowerCase().indexOf("ingredientes");if(i>=0)t=t.slice(i);
-    txt.value=t;st.textContent="Texto leído. Revísalo y corrige si hace falta.";analyze();
-  }).catch(function(){st.textContent="No he podido leer la foto. Prueba con más luz y más cerca."});
+  st.textContent="Preparando…";
+  getWorker().then(function(w){return w.recognize(prep())}).then(function(r){
+    var t=extract(r.data.text);
+    if(t.length<8){st.textContent="No he encontrado texto legible. Recorta solo los ingredientes, con buena luz y sin reflejos.";return}
+    txt.value=t;$("crop").hidden=true;st.textContent="Texto leído. Revísalo y corrígelo antes de fiarte del resultado.";analyze();
+  }).catch(function(){worker=null;st.textContent="No he podido leer la foto. Prueba a recortar solo los ingredientes."});
 };
+$("bAll").onclick=function(){sel={x:0,y:0,w:cv.width,h:cv.height};draw();$("bRead").onclick()};
+$("cam").onchange=$("gal").onchange=function(e){var f=e.target.files[0];e.target.value="";if(f)loadImg(f)};
 
-// ---- Código de barras → Open Food Facts ----
-function lookup(code){
-  code=String(code).replace(/\D/g,"");if(code.length<8){st.textContent="Código no válido.";return}
-  st.textContent="Buscando "+code+"…";
-  fetch("https://world.openfoodfacts.org/api/v2/product/"+code+".json?fields=product_name,brands,ingredients_text,ingredients_text_es")
+// ---- Código de barras → Open Food Facts (con búsqueda por nombre) ----
+function ean(c){ // valida el dígito de control (EAN-8, UPC-A, EAN-13)
+  if(!/^(\d{8}|\d{12}|\d{13})$/.test(c))return false;
+  var d=c.split("").map(Number),k=d.pop(),s=0;
+  d.reverse().forEach(function(x,i){s+=x*(i%2?1:3)});
+  return (10-s%10)%10===k;
+}
+var API="https://world.openfoodfacts.org/";
+function get(c){return fetch(API+"api/v2/product/"+c+".json?fields=product_name,brands,ingredients_text,ingredients_text_es").then(function(r){return r.json()}).then(function(d){return d&&d.status===1?d.product:null}).catch(function(){return null})}
+function fill(p,t){txt.value=t;nm.value=p.product_name||"";st.textContent=(p.product_name||"Producto")+(p.brands?" · "+p.brands:"")+". Revisa que los ingredientes coincidan con tu envase.";analyze()}
+function byName(q,pre){
+  st.textContent=(pre||"")+"Buscando «"+q+"» entre productos de España…";$("cands").innerHTML="";
+  fetch(API+"cgi/search.pl?search_terms="+encodeURIComponent(q)+"&search_simple=1&action=process&json=1&page_size=12&tagtype_0=countries&tag_contains_0=contains&tag_0=spain&fields=product_name,brands,ingredients_text,ingredients_text_es")
   .then(function(r){return r.json()}).then(function(d){
-    var p=d&&d.product,t=p&&(p.ingredients_text_es||p.ingredients_text);
-    if(!p||d.status!==1){st.textContent="Producto no encontrado en la base de datos. Hazle foto a los ingredientes.";return}
-    if(!t){st.textContent="Está en la base pero sin ingredientes. Hazle foto a la etiqueta.";return}
-    txt.value=t;nm.value=p.product_name||"";st.textContent=(p.product_name||"Producto")+(p.brands?" · "+p.brands:"")+". Revisa que los ingredientes coincidan con tu envase.";analyze();
+    var L=(d.products||[]).filter(function(p){return p.ingredients_text_es||p.ingredients_text}).slice(0,6),c=$("cands");
+    if(!L.length){st.textContent="No encuentro ese producto con ingredientes. Hazle foto a la etiqueta.";return}
+    st.textContent="Elige tu producto (comprueba marca y envase):";
+    L.forEach(function(p){var b=document.createElement("button");b.className="btn sec";b.textContent=(p.product_name||"Producto")+(p.brands?" · "+p.brands:"");b.onclick=function(){c.innerHTML="";fill(p,p.ingredients_text_es||p.ingredients_text)};c.appendChild(b)});
   }).catch(function(){st.textContent="No se pudo consultar la base de datos. ¿Tienes conexión?"});
 }
+function lookup(code){
+  code=String(code).replace(/\D/g,"");
+  if(code.length<8){st.textContent="Código no válido.";return}
+  if(!ean(code)){st.textContent="El código no parece correcto (dígito de control erróneo). Revísalo o vuelve a escanearlo.";return}
+  st.textContent="Buscando "+code+"…";$("cands").innerHTML="";
+  var v=[code];if(code.length===12)v.push("0"+code);if(code.length===13&&code[0]==="0")v.push(code.slice(1));
+  v.reduce(function(p,c){return p.then(function(r){return r||get(c)})},Promise.resolve(null)).then(function(p){
+    var t=p&&(p.ingredients_text_es||p.ingredients_text);
+    if(t){fill(p,t);return}
+    var n=(p&&p.product_name)||nm.value.trim();
+    if(n)byName(n,p?"Está en la base pero sin ingredientes. ":"No está por código. ");
+    else st.textContent="Ese código no está en la base de datos. Escribe el nombre y pulsa «Buscar por nombre», o hazle foto a los ingredientes.";
+  });
+}
 $("bCode").onclick=function(){lookup($("code").value)};
+$("bName").onclick=function(){var n=nm.value.trim();if(n.length<3){st.textContent="Escribe el nombre del producto.";return}byName(n,"")};
 
+// ---- Escáner en directo y foto del código ----
 var stream=null,reader=null,on=false;
 function stop(){on=false;$("scan").hidden=true;if(reader){try{reader.reset()}catch(e){}reader=null}if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}$("vid").srcObject=null}
-function found(c){stop();$("code").value=c;lookup(c)}
+function found(c){if(!ean(c))return false;stop();$("code").value=c;lookup(c);return true}
+function hints(){var Z=ZXing,h=new Map();h.set(Z.DecodeHintType.POSSIBLE_FORMATS,[Z.BarcodeFormat.EAN_13,Z.BarcodeFormat.EAN_8,Z.BarcodeFormat.UPC_A,Z.BarcodeFormat.UPC_E]);h.set(Z.DecodeHintType.TRY_HARDER,true);return h}
+var HD={video:{facingMode:"environment",width:{ideal:1920},height:{ideal:1080}}};
 function viaZXing(){
-  if(!window.ZXing){st.textContent="No se pudo abrir el escáner. Escribe el código a mano.";stop();return}
-  reader=new ZXing.BrowserMultiFormatReader();
-  reader.decodeFromVideoDevice(null,"vid",function(r){if(r&&on)found(r.getText())}).catch(function(){st.textContent="No hay acceso a la cámara. Escribe el código a mano.";stop()});
+  if(!window.ZXing){st.textContent="No se pudo abrir el escáner. Usa la foto del código o escríbelo.";stop();return}
+  reader=new ZXing.BrowserMultiFormatReader(hints(),150);
+  reader.decodeFromConstraints(HD,"vid",function(r){if(r&&on)found(r.getText())}).catch(function(){st.textContent="No hay acceso a la cámara. Usa la foto del código o escríbelo.";stop()});
 }
 $("bScan").onclick=function(){
-  on=true;$("scan").hidden=false;st.textContent="Apunta al código de barras.";
+  on=true;$("scan").hidden=false;st.textContent="Apunta al código, a unos 15 cm y con buena luz.";
   if(!("BarcodeDetector" in window)){viaZXing();return}
   var det=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e"]}),v=$("vid");
-  navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}).then(function(s){
-    stream=s;v.srcObject=s;return v.play();
+  navigator.mediaDevices.getUserMedia(HD).then(function(s){
+    stream=s;v.srcObject=s;try{s.getVideoTracks()[0].applyConstraints({advanced:[{focusMode:"continuous"}]}).catch(function(){})}catch(e){}return v.play();
   }).then(function(){
-    (function loop(){if(!on)return;det.detect(v).then(function(r){r.length?found(r[0].rawValue):setTimeout(loop,250)}).catch(function(){setTimeout(loop,300)})})();
-  }).catch(function(){stop();st.textContent="No hay acceso a la cámara. Escribe el código a mano."});
+    (function loop(){if(!on)return;det.detect(v).then(function(r){var ok=false;for(var i=0;i<r.length&&!ok;i++)ok=found(r[i].rawValue);if(!ok)setTimeout(loop,200)}).catch(function(){setTimeout(loop,300)})})();
+  }).catch(function(){stop();st.textContent="No hay acceso a la cámara. Usa la foto del código o escríbelo."});
+};
+$("bimg").onchange=function(e){
+  var f=e.target.files[0];e.target.value="";if(!f)return;
+  st.textContent="Leyendo el código de la foto…";
+  var viaZ=function(){
+    if(!window.ZXing){st.textContent="No se pudo leer el código. Escríbelo a mano.";return}
+    new ZXing.BrowserMultiFormatReader(hints()).decodeFromImageUrl(URL.createObjectURL(f)).then(function(r){if(!found(r.getText()))st.textContent="Código leído con errores. Repite la foto, más cerca y enfocada."}).catch(function(){st.textContent="No he podido leer el código. Acércate, enfoca, evita reflejos o escríbelo a mano."});
+  };
+  if("BarcodeDetector" in window){createImageBitmap(f).then(function(b){return new BarcodeDetector().detect(b)}).then(function(r){var ok=false;r.forEach(function(x){ok=ok||found(x.rawValue)});if(!ok)viaZ()}).catch(viaZ)}else viaZ();
 };
 $("bStop").onclick=function(){stop();st.textContent=""};
 })();
