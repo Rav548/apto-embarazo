@@ -34,6 +34,7 @@ video{width:100%;border-radius:12px;background:#000;margin-top:10px;max-height:3
 h3{font-size:1rem;margin:0 0 6px}ul{margin:0;padding-left:20px;color:var(--mut)}
 .st{color:var(--mut);font-size:.92rem;margin-top:10px;min-height:1.3em}
 .disc{font-size:.82rem;color:var(--mut);text-align:center;margin-top:18px}
+.chk{display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:.92rem;color:var(--tx)}.chk input{margin-top:4px;flex:none}
 #cv{width:100%;border-radius:12px;touch-action:none;margin-top:10px;display:block}
 [hidden]{display:none!important}
 </style>
@@ -67,70 +68,41 @@ h3{font-size:1rem;margin:0 0 6px}ul{margin:0;padding-left:20px;color:var(--mut)}
   <button class="btn sec" id="bName">🔎 Buscar por nombre</button>
   <label class="t" for="txt">Ingredientes (puedes corregir el texto leído):</label>
   <textarea id="txt" placeholder="Ej.: leche, azúcar, extracto de regaliz, aroma…"></textarea>
+  <label class="chk"><input type="checkbox" id="oCook"><span>Lo voy a cocinar bien antes de comerlo (más de 71 ºC en el centro)</span></label>
+  <label class="chk"><input type="checkbox" id="oImm"><span>Mi analítica dice que estoy inmunizada frente a la toxoplasmosis</span></label>
   <button class="btn" id="go">Analizar</button>
 </div>
 
 <div id="out"></div>
-<p class="disc">Orientación general basada en reglas, no sustituye a tu matrona o médico. La etiqueta no lo dice todo (pasteurización, cocinado, origen del pescado…): ante la duda, consulta. El texto leído de una foto puede tener errores: revísalo.</p>
+<p class="disc">Orientación general basada en recomendaciones oficiales; no sustituye a tu matrona o médico. La etiqueta no lo dice todo: ante la duda, consulta. El texto leído de una foto puede tener errores: revísalo.</p>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="reglas.js"></script>
 <script>
 (function(){
 var $=function(i){return document.getElementById(i)},st=$("st"),txt=$("txt"),nm=$("nm"),out=$("out");
 
-// [nivel, regex (sobre texto sin tildes y en minúsculas), nombre, motivo]
-var R=[
-["evitar","boquerones? (al |en |a la )?vinagr|boquerones?\\b.{0,80}\\bvinagre|boquerones? marinad|salmon (ahumado|marinado)|pescado (crudo|ahumado|marinado)|trucha ahumada|bacalao ahumado|ceviche|\\bsushi|sashimi|carpaccio de (pescado|salmon|atun)|gravlax","Pescado crudo, marinado o ahumado","Pescado crudo o marinado (como los boquerones en vinagre) o ahumado refrigerado: AESAN recomienda evitarlo en el embarazo por listeria y anisakis; el vinagre no garantiza eliminarlos. Seguro: pescado bien cocinado o conserva esterilizada (lata)."],
-["precaucion","anchoa","Anchoas (semiconserva)","Suelen tomarse sin cocinar; mejor evitarlas o consultarlo. Cocinadas (en pizza, al horno) no hay problema."],
-["evitar","\\b(alcohol|etanol|vino|cerveza|licor|ron|whisky|vodka|ginebra|brandy|cava)\\b","Alcohol","No se recomienda ningún consumo de alcohol en el embarazo."],
-["evitar","regaliz|glicirric|glycyrrhiz","Regaliz","La glicirricina se asocia a riesgos en el embarazo; mejor evitarla."],
-["evitar","\\bquinina\\b|\\bagua tonica\\b","Quinina","Evitar en cantidades relevantes."],
-["evitar","\\bhigado\\b|\\bpate\\b|\\bfoie","Hígado / paté","Muy rico en vitamina A; además el paté refrigerado conlleva riesgo de listeria."],
-["evitar","leche cruda|queso de leche cruda|leche sin pasteurizar","Leche cruda","Riesgo de listeria."],
-["evitar","huevo crudo|yema cruda","Huevo crudo","Riesgo de salmonela."],
-["evitar","pez espada|emperador|tiburon|cazon|atun rojo|\\blucio\\b","Pescado con mucho mercurio","Evitar durante el embarazo."],
-["evitar","ginseng|\\baloe\\b|san juan|poleo|tanaceto|\\bruda\\b|sabina|\\bsen\\b|cimicifuga|regaliz","Extracto de planta sin evidencia de seguridad","Se recomienda evitar estas plantas."],
-["precaucion","cafeina|guarana|te verde|te negro|\\bmate\\b|\\bcafe\\b|extracto de cafe|\\bcola\\b","Cafeína","Límite orientativo: 200 mg al día en total."],
-["precaucion","taurina|bebida energetica","Taurina / energética","Suelen llevar mucha cafeína; mejor evitarlas."],
-["precaucion","\\bcacao\\b|chocolate","Cacao / chocolate","Contiene algo de cafeína; moderar."],
-["precaucion","aspartamo|sacarina|sucralosa|acesulfamo|ciclamato|estevia|\\be ?(950|951|954|955|954|960|961|962|420|421|965|967)\\b","Edulcorante","Admitidos con moderación; la sacarina y el ciclamato suelen desaconsejarse."],
-["precaucion","nitrito|nitrato|\\be ?(249|250|251|252)\\b","Nitritos / nitratos","Conservantes de curados; moderar."],
-["precaucion","ahumado","Ahumado","Los ahumados refrigerados pueden tener listeria; mejor cocinados."],
-["evitar","chorizo|salchichon|salami|\\bfuet|longaniza|sobrasada|lomo embuchado|cecina|bresaola|pancetta|\\bspeck|jamon(?! cocido| york| de york)|paleta iberica|paleta serrana","Embutido curado (crudo)","Producto cárnico crudo curado: AESAN recomienda evitarlo en el embarazo (listeria y, si no estás inmunizada, toxoplasmosis). Solo es seguro cocinado a más de 70 ºC durante 2 min (guisado, pizza, rehogado…). Congelar ayuda con la toxoplasmosis, pero no elimina la listeria."],
-["precaucion","jamon cocido|jamon york|jamon de york|fiambre|mortadela|chopped|frankfurt|salchicha|lonchas|embutido|morcilla|butifarra","Fiambre / embutido cocido","Listo para consumir y refrigerado: mejor recalentarlo a más de 70 ºC o evitarlo, sobre todo en lonchas."],
-["precaucion","brie|camembert|roquefort|gorgonzola|queso azul|queso fresco|feta|queso blando|mozzarella","Queso blando","Solo si consta leche pasteurizada."],
-["precaucion","\\batun\\b|\\bsalmon\\b|\\bmarisco|\\bsurimi","Pescado / marisco","Moderar atún y revisar que esté bien cocinado."],
-["precaucion","retinol|vitamina a\\b|palmitato de retinilo","Vitamina A (retinol)","Dosis altas son un riesgo; revisa la cantidad."],
-["precaucion","\\be ?(102|104|110|122|124|129)\\b|tartrazina|amarillo ocaso|rojo allura","Colorante azoico","Mejor limitar."],
-["precaucion","\\bextracto|\\binfusion|\\bplanta|hierbas|manzanilla|menta|hinojo","Extractos / infusiones","Si no se concreta la planta, consulta antes de tomarlo."],
-["precaucion","\\bcerdo|\\bcarne|paleta|panceta|magro|vacuno|\\bpavo|\\bpollo|\\bbacon|tocino","Producto cárnico","Si se vende crudo o curado (se come sin cocinar) es de los alimentos a evitar; tómalo siempre bien cocinado (más de 70 ºC). Comprueba qué tipo de producto es."]
-];
-var LAB={evitar:"🔴 Mejor evitar",precaucion:"🟡 Con precaución",ok:"🟢 Sin problemas detectados"};
-function norm(s){return String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}
 function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML}
 
+var oC=$("oCook"),oI=$("oImm");
+try{oI.checked=localStorage.getItem("inm")==="1"}catch(e){}
+oI.onchange=function(){try{localStorage.setItem("inm",oI.checked?"1":"0")}catch(e){}};
+var LAB={evitar:"🔴 Mejor evitar",precaucion:"🟡 Con precaución",ok:"🟢 Sin problemas detectados"};
+var SUM={evitar:"Hay algo que las autoridades sanitarias recomiendan evitar.",precaucion:"Nada que evitar del todo, pero hay puntos que comprobar o moderar.",ok:"No he detectado problemas en lo que he podido revisar. Eso no garantiza que sea seguro: mira lo que la etiqueta no dice."};
 function analyze(){
-  var t=norm(nm.value+" . "+txt.value);out.innerHTML="";
-  if(t.trim().length<4){st.textContent="Escribe, escanea o fotografía los ingredientes primero.";return}
-  var seen={},hits=[];
-  R.forEach(function(r){
-    var m=t.match(new RegExp(r[1]));
-    if(m&&!seen[r[2]]&&!((r[2]==="Producto cárnico"&&(seen["Embutido curado (crudo)"]||seen["Fiambre / embutido cocido"]))||((r[2]==="Ahumado"||r[2]==="Pescado / marisco")&&seen["Pescado crudo, marinado o ahumado"]))){seen[r[2]]=1;hits.push({n:r[0],name:r[2],why:(r[2]==="Queso blando"&&/pasteuriz/.test(t))?"En el texto consta “pasteurizado”: riesgo bajo. Si lleva queso azul o de oveja, comprueba que ese también lo sea; si hay duda, pregunta al fabricante o a tu matrona.":r[3],w:m[0]})}
-  });
-  var rank={evitar:0,precaucion:1};hits.sort(function(a,b){return rank[a.n]-rank[b.n]});
-  var v=hits.some(function(h){return h.n==="evitar"})?"evitar":hits.length?"precaucion":"ok";
-  var sum={evitar:"Hay al menos un ingrediente que se recomienda evitar.",
-    precaucion:"Nada que evitar del todo, pero hay ingredientes a moderar o comprobar.",
-    ok:"No he encontrado nada problemático en lo que he podido revisar, pero la etiqueta no lo dice todo."}[v];
-  var h='<div class="verdict '+v+'"><h2>'+LAB[v]+'</h2><p>'+sum+'</p></div>';
-  if(hits.length){
+  var raw=nm.value+" . "+txt.value;out.innerHTML="";
+  if(raw.trim().length<6){st.textContent="Escribe, escanea o fotografía los ingredientes primero.";return}
+  var r=evaluar(raw,{cocinado:oC.checked,inmune:oI.checked});
+  var h='<div class="verdict '+r.v+'"><h2>'+LAB[r.v]+'</h2><p>'+SUM[r.v]+(oC.checked?" (Suponiendo que lo cocinas bien.)":"")+'</p></div>';
+  if(r.h.length){
     h+='<div class="card"><h3>Qué he encontrado</h3>';
-    hits.forEach(function(x){h+='<div class="item '+x.n+'" style="background:none;border-color:var(--bd)"><i class="dot"></i><div><b>'+esc(x.name)+' <small style="font-weight:400;color:var(--mut)">(“'+esc(x.w.trim())+'”)</small></b><span>'+esc(x.why)+'</span></div></div>'});
+    r.h.forEach(function(x){h+='<div class="item '+x.l+'" style="background:none;border-color:var(--bd)"><i class="dot"></i><div><b>'+esc(x.n)+' <small style="font-weight:400;color:var(--mut)">(“'+esc(x.w)+'”)</small></b><span>'+esc(x.m)+'</span></div></div>'});
     h+='</div>';
   }
-  h+='<div class="card"><h3>Lo que la etiqueta no dice</h3><ul><li>Si lácteos y quesos son pasteurizados.</li><li>Si el producto se come crudo o curado (embutidos) o hay que cocinarlo antes.</li><li>Si carnes y pescados están bien cocinados.</li><li>La cantidad exacta de cafeína o vitamina A.</li></ul></div>';
+  h+='<div class="card"><h3>Lo que la etiqueta no dice</h3><ul><li>Si lácteos y quesos son pasteurizados (y quita siempre la corteza).</li><li>Si carnes, embutidos y pescados se comerán crudos o bien cocinados (71 ºC en el centro; las sobras, a más de 75 ºC y nunca frías).</li><li>Que frutas y hortalizas crudas estén bien lavadas y desinfectadas.</li><li>La cafeína total del día (máximo 200 mg) y la cantidad de vitamina A.</li></ul></div>';
+  h+='<p class="disc">Fuentes: <a href="https://www.dsca.gob.es/es/consumo/novedades/recomendaciones/recomendaciones-alimentarias/alimentacion-embarazo" style="color:var(--ac)">Ministerio de Consumo y AESAN</a>, <a href="https://www.dsca.gob.es/es/consumo/recomendaciones-de-consumo-de-pescado" style="color:var(--ac)">AESAN (mercurio en pescado)</a> y <a href="https://www.efsa.europa.eu/es/press/news/150527" style="color:var(--ac)">EFSA (cafeína)</a>.</p>';
   out.innerHTML=h;out.scrollIntoView({behavior:"smooth"});
 }
 $("go").onclick=analyze;
