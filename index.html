@@ -40,6 +40,7 @@ h3{font-size:1rem;margin:0 0 6px}ul{margin:0;padding-left:20px;color:var(--mut)}
 .st{color:var(--mut);font-size:.92rem;margin-top:10px;min-height:1.3em}
 .disc{font-size:.82rem;color:var(--mut);text-align:center;margin-top:18px}
 .chk{display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:.92rem;color:var(--tx)}.chk input{margin-top:4px;flex:none}
+.li{display:flex;gap:6px;margin-top:6px}.lb{flex:1;text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font:inherit;cursor:pointer}.ld{border:0;background:none;color:var(--mut);font-size:1rem;padding:0 10px;cursor:pointer}
 #cv{width:100%;border-radius:12px;touch-action:none;margin-top:10px;display:block}
 [hidden]{display:none!important}
 </style>
@@ -79,6 +80,7 @@ h3{font-size:1rem;margin:0 0 6px}ul{margin:0;padding-left:20px;color:var(--mut)}
 </div>
 
 <div id="out"></div>
+<div id="lista" class="card" hidden></div>
 <p class="disc">Orientación general basada en recomendaciones oficiales; no sustituye a tu matrona o médico. La etiqueta no lo dice todo: ante la duda, consulta. El texto leído de una foto puede tener errores: revísalo.</p>
 </main>
 
@@ -96,20 +98,52 @@ try{oI.checked=localStorage.getItem("inm")==="1"}catch(e){}
 oI.onchange=function(){try{localStorage.setItem("inm",oI.checked?"1":"0")}catch(e){}};
 var LAB={evitar:"🔴 Mejor evitar",precaucion:"🟡 Con precaución",ok:"🟢 Sin problemas detectados"};
 var SUM={evitar:"Hay algo que las autoridades sanitarias recomiendan evitar.",precaucion:"Nada que evitar del todo, pero hay puntos que comprobar o moderar.",ok:"No he detectado problemas en lo que he podido revisar. Eso no garantiza que sea seguro: mira lo que la etiqueta no dice."};
+var DOT={evitar:"🔴",precaucion:"🟡",ok:"🟢"},lista=[],lastRep="";
+try{lista=JSON.parse(localStorage.getItem("lista")||"[]")}catch(e){lista=[]}
+function saveL(){try{localStorage.setItem("lista",JSON.stringify(lista.slice(0,60)))}catch(e){}}
+function addL(name,t,v,c){
+  var k=(name+"|"+t).slice(0,300).toLowerCase();
+  lista=lista.filter(function(x){return x.k!==k});
+  lista.unshift({k:k,n:name||t.slice(0,40),nm:name,t:t,v:v,c:c});saveL();drawL();
+}
+function drawL(){
+  var c=$("lista");c.hidden=!lista.length;if(!lista.length)return;
+  var n={evitar:0,precaucion:0,ok:0};lista.forEach(function(x){n[x.v]++});
+  c.innerHTML='<h3>🛒 Mi lista ('+lista.length+')</h3><p class="st" style="margin:0 0 6px">'+DOT.evitar+' '+n.evitar+' · '+DOT.precaucion+' '+n.precaucion+' · '+DOT.ok+' '+n.ok+'. Se guarda solo en tu móvil. Toca un producto para ver el detalle (🍳 = lo valoraste cocinado).</p>';
+  lista.forEach(function(x,i){
+    var r=document.createElement("div");r.className="li";
+    var b=document.createElement("button");b.className="lb";b.textContent=DOT[x.v]+" "+x.n+(x.c?" 🍳":"");
+    b.onclick=function(){nm.value=x.nm;txt.value=x.t;oC.checked=!!x.c;analyze();window.scrollTo({top:0,behavior:"smooth"})};
+    var d=document.createElement("button");d.className="ld";d.textContent="✕";d.setAttribute("aria-label","Quitar de la lista");
+    d.onclick=function(){lista.splice(i,1);saveL();drawL()};
+    r.appendChild(b);r.appendChild(d);c.appendChild(r);
+  });
+  var v=document.createElement("button");v.className="btn sec";v.textContent="Vaciar lista";
+  v.onclick=function(){if(confirm("¿Vaciar la lista?")){lista=[];saveL();drawL()}};c.appendChild(v);
+}
 function analyze(){
-  var raw=nm.value+" . "+txt.value;out.innerHTML="";
-  if(raw.trim().length<6){st.textContent="Escribe, escanea o fotografía los ingredientes primero.";return}
-  var r=evaluar(raw,{cocinado:oC.checked,inmune:oI.checked});
+  var name=nm.value.trim(),t=txt.value.trim(),raw=name+" . "+t;out.innerHTML="";
+  if(raw.length<6){st.textContent="Escribe, escanea o fotografía los ingredientes primero.";return}
+  var r=evaluar(raw,{cocinado:oC.checked,inmune:oI.checked}),rev=REGLAS_INFO.rev;
   var h='<div class="verdict '+r.v+'"><h2>'+LAB[r.v]+'</h2><p>'+SUM[r.v]+(oC.checked?" (Suponiendo que lo cocinas bien.)":"")+'</p></div>';
   if(r.h.length){
     h+='<div class="card"><h3>Qué he encontrado</h3>';
-    r.h.forEach(function(x){h+='<div class="item '+x.l+'" style="background:none;border-color:var(--bd)"><i class="dot"></i><div><b>'+esc(x.n)+' <small style="font-weight:400;color:var(--mut)">(“'+esc(x.w)+'”)</small></b><span>'+esc(x.m)+'</span></div></div>'});
+    r.h.forEach(function(x){h+='<div class="item '+x.l+'" style="background:none;border-color:var(--bd)"><i class="dot"></i><div><b>'+esc(x.n)+' <small style="font-weight:400;color:var(--mut)">(“'+esc(x.w)+'”)</small></b><span>'+esc(x.m)+'</span><em style="display:block;font-size:.8rem;color:var(--mut);font-style:normal;margin-top:2px">Fuente: '+esc(x.f)+'</em></div></div>'});
     h+='</div>';
   }
   h+='<div class="card"><h3>Lo que la etiqueta no dice</h3><ul><li>Si lácteos y quesos son pasteurizados (y quita siempre la corteza).</li><li>Si carnes, embutidos y pescados se comerán crudos o bien cocinados (71 ºC en el centro; las sobras, a más de 75 ºC y nunca frías).</li><li>Que frutas y hortalizas crudas estén bien lavadas y desinfectadas.</li><li>La cafeína total del día (máximo 200 mg) y la cantidad de vitamina A.</li></ul></div>';
-  h+='<p class="disc">Fuentes: <a href="https://www.dsca.gob.es/es/consumo/novedades/recomendaciones/recomendaciones-alimentarias/alimentacion-embarazo" style="color:var(--ac)">Ministerio de Consumo y AESAN</a>, <a href="https://www.dsca.gob.es/es/consumo/recomendaciones-de-consumo-de-pescado" style="color:var(--ac)">AESAN (mercurio en pescado)</a> y <a href="https://www.efsa.europa.eu/es/press/news/150527" style="color:var(--ac)">EFSA (cafeína)</a>.</p>';
-  out.innerHTML=h;out.scrollIntoView({behavior:"smooth"});
+  h+='<div class="card"><h3>¿Algo no cuadra?</h3><p class="st" style="margin:0">Si el resultado te parece incorrecto, avísalo: así se corrigen las reglas.</p><button class="btn sec" id="bErr">🚩 Este resultado no es correcto</button><button class="btn sec" id="bCopy">📋 Copiar informe</button><button class="btn" id="bNext">📷 Escanear otro producto</button></div>';
+  h+='<p class="disc">Reglas revisadas el '+rev+'. Fuentes: <a href="https://www.dsca.gob.es/es/consumo/novedades/recomendaciones/recomendaciones-alimentarias/alimentacion-embarazo" style="color:var(--ac)">Ministerio de Consumo y AESAN</a>, <a href="https://www.dsca.gob.es/es/consumo/recomendaciones-de-consumo-de-pescado" style="color:var(--ac)">AESAN (mercurio en pescado)</a> y <a href="https://www.efsa.europa.eu/es/press/news/150527" style="color:var(--ac)">EFSA (cafeína)</a>.</p>';
+  out.innerHTML=h;
+  lastRep=["Producto: "+(name||"(sin nombre)"),"Resultado de la app: "+LAB[r.v]+" (reglas revisadas el "+rev+")","Opciones: cocinado="+(oC.checked?"sí":"no")+", inmunizada="+(oI.checked?"sí":"no"),"Reglas activadas: "+(r.h.map(function(x){return x.n+" ("+x.l+")"}).join("; ")||"ninguna"),"Ingredientes: "+t.slice(0,1200),"","¿Qué debería decir y por qué? (indica la fuente si puedes):",""].join("\n");
+  $("bErr").onclick=function(){window.open("https://github.com/Rav548/apto-embarazo/issues/new?title="+encodeURIComponent("Resultado incorrecto: "+(name||"producto"))+"&body="+encodeURIComponent(lastRep),"_blank")};
+  $("bCopy").onclick=function(){var ok=function(){st.textContent="Informe copiado. Pégalo donde quieras."};
+    if(navigator.clipboard)navigator.clipboard.writeText(lastRep).then(ok).catch(function(){prompt("Copia el informe:",lastRep)});else prompt("Copia el informe:",lastRep)};
+  $("bNext").onclick=function(){window.scrollTo({top:0,behavior:"smooth"});$("bScan").click()};
+  addL(name,t,r.v,oC.checked);
+  out.scrollIntoView({behavior:"smooth"});
 }
+drawL();
 $("go").onclick=analyze;
 
 // ---- Foto → recorte → texto (OCR en el propio móvil) ----
