@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pruebas de las reglas</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:640px;margin:0 auto;padding:20px 16px;background:#faf7f2;color:#2b2622}
+@media (prefers-color-scheme:dark){body{background:#171513;color:#f0ebe4}}
+h1{font-size:1.3rem}.ok{color:#1d6b3a}.ko{color:#b3261e;font-weight:600}
+@media (prefers-color-scheme:dark){.ok{color:#7fd49a}.ko{color:#ff9c93}}
+li{margin:4px 0}
+</style>
+</head>
+<body>
+<h1>Pruebas de las reglas</h1>
+<p id="res">Ejecutando…</p>
+<ul id="lista"></ul>
+<p><a href="./">Volver a la app</a></p>
+<script src="reglas.js"></script>
+<script src="casos.js"></script>
+<script>
+(function(){
+var f=0,ul=document.getElementById("lista");
+CASOS.forEach(function(c){
+  var r=evaluar(c.t,c.o),n=r.h.map(function(x){return x.n}),err=[];
+  if(c.e.v&&r.v!==c.e.v)err.push("resultado "+r.v+" (esperado "+c.e.v+")");
+  (c.e.incluye||[]).forEach(function(x){if(n.indexOf(x)<0)err.push("falta «"+x+"»")});
+  (c.e.excluye||[]).forEach(function(x){if(n.indexOf(x)>=0)err.push("sobra «"+x+"»")});
+  r.h.forEach(function(x){if(!x.f||!x.m)err.push("«"+x.n+"» sin fuente o sin motivo")});
+  if(err.length)f++;
+  var li=document.createElement("li");li.className=err.length?"ko":"ok";
+  li.textContent=(err.length?"✗ ":"✓ ")+c.n+(err.length?": "+err.join("; "):"");
+  ul.appendChild(li);
+});
+document.getElementById("res").textContent=(CASOS.length-f)+" de "+CASOS.length+" pruebas correctas · "+REGLAS_INFO.n+" reglas · revisión "+REGLAS_INFO.rev+(f?" — HAY FALLOS":"");
+})();
+</script>
+</body>
+</html>
